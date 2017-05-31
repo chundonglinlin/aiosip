@@ -6,14 +6,17 @@ import aiosip
 
 
 
-sip_config = {  'srv_host' : 'XXXXXXX',
-                 'srv_port'  : '5060',
+
+sip_config = {  'srv_host' : '0.0.0.0',
+                 'srv_port'  : '6001',
                  'realm' : 'XXXXXX',
                  'user'  : 'YYYYYY',
                  'pwd'   : 'ZZZZZZ',
                  'local_ip' : '0.0.0.0',
-                 'local_port': None
+                 'local_port': '6002'
              }
+
+
 
 
 def show_notify(dialog, message):

@@ -30,11 +30,11 @@ class Auth(dict):
 
         if authenticate.startswith('Digest'):
             auth.method = 'Digest'
-            params = authenticate[7:].split(', ')
+            params = authenticate[7:].split(',')
             for param in params:
                 k, v = param.split('=')
-                if '="' in param:
-                    v = v[1:-1]
+                k = k.strip()
+                v = v.strip().strip('"')
                 auth[k] = v
             auth['username'] = username
             auth['uri'] = uri

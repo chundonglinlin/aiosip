@@ -19,6 +19,7 @@ FIRST_LINE_PATTERN = \
           'str': 'SIP/2.0 %(status_code)s %(status_message)s'},
     }
 
+
 class Message:
     def __init__(self,
                  # from_uri,
@@ -46,8 +47,8 @@ class Message:
             elif direction != 'Contact':
                 raise(ValueError('You must have a "%s" header or details.' % direction))
 
-            if content_type:
-                self.headers['Content-Type'] = content_type
+        if content_type:
+            self.headers['Content-Type'] = content_type
         self.payload = payload
 
         # Build the message
@@ -145,28 +146,42 @@ class Message:
 class Request(Message):
     def __init__(self,
                  method,
-                 cseq=1,
                  from_details=None,
                  to_details=None,
                  contact_details=None,
                  headers=None,
                  content_type=None,
                  payload=None):
+
+        if not headers:
+            headers = CIMultiDict()
+
         if from_details:
             self.from_details = from_details
+            headers['From'] = from_details
+
         if to_details:
             self.to_details = to_details
+            headers['To'] = to_details
+
         if contact_details:
             self.contact_details = contact_details
+
         super().__init__(content_type=content_type,
                          headers=headers,
                          payload=payload)
         self._method = method
-        self._cseq = cseq
+        self._cseq = 0
         self.future = asyncio.Future()
 
-        if 'CSeq' not in self.headers:
-            self.headers['CSeq'] = '%s %s' % (cseq, self.method)
+    @property
+    def cseq(self):
+        return self._cseq
+
+    @cseq.setter
+    def cseq(self, cseq):
+        self._cseq = cseq
+        self.headers['CSeq'] = '%s %s' % (self._cseq, self.method)
 
     def __str__(self):
         message = FIRST_LINE_PATTERN['request']['str'] % {'method': self.method,
@@ -195,6 +210,32 @@ class Response(Message):
         super().__init__(content_type=content_type,
                          headers=headers,
                          payload=payload)
+
+    @classmethod
+    def from_request(cls,
+                     request,
+                     status_code=200,
+                     status_message='OK',
+                     payload=None,
+                     headers=None):
+
+        if not headers:
+            headers = CIMultiDict()
+        if type(headers) == dict:
+            headers = CIMultiDict(**headers)
+
+        headers['Via'] = request.headers['Via']
+        headers['CSeq'] = request.headers['CSeq']
+        headers['Call-ID'] = request.headers['Call-ID']
+
+        return Response(
+            status_code=status_code,
+            status_message=status_message,
+            to_details=request.to_details,
+            from_details=request.from_details,
+            headers=headers,
+            payload=payload,
+        )
 
     def __str__(self):
         message = FIRST_LINE_PATTERN['response']['str'] % self.__dict__
