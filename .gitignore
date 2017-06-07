@@ -51,4 +51,5 @@ docs/_build
 venv
 pyvenv
 
-examples/test.py
+examples/test_ac3.py
+examples/test_aiosip.py

@@ -19,7 +19,8 @@ from .log import application_logger
 
 
 class Application(dict):
-    def __init__(self, *, logger=application_logger, loop=None):
+    def __init__(self, *, logger=application_logger, loop=None,
+                 middleware=()):
         application_logger.debug('Starting application')
         super().__init__()
         if loop is None:
@@ -32,6 +33,7 @@ class Application(dict):
         self._protocols = {}
         self.router = Router()
         self.server = False
+        self.middleware = middleware
 
     async def start_dialog(self,
                            from_uri,

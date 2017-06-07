@@ -30,7 +30,7 @@ class Dialog:
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        self._app = app
+        self.app = app
         self.router = Router(routes=routes)
         self.from_details = Contact.from_header(from_uri)
         self.to_details = Contact.from_header(to_uri)
@@ -49,6 +49,7 @@ class Dialog:
         self._msgs = defaultdict(dict)
         self.invite_current_attempt = None
         self.register_current_attempt = None
+        self.auth = None
 
     async def incoming_response(self, msg):
         if msg.cseq in self._msgs[msg.method]:
@@ -83,13 +84,14 @@ class Dialog:
                 original_msg = self._msgs[msg.method].pop(msg.cseq)
 
                 del (original_msg.headers['CSeq'])
-                original_msg.headers['Authorization'] = str(
-                    Auth.from_authenticate_header(
-                        authenticate=msg.headers['WWW-Authenticate'],
-                        method=msg.method,
-                        uri=original_msg.to_details.from_repr(),
-                        username=username,
-                        password=self.password))
+
+                auth = Auth.from_header(msg.headers['WWW-Authenticate'])
+                original_msg.headers['Authorization'] = auth.do_auth(
+                    uri=original_msg.to_details.from_repr(),
+                    username=username,
+                    password=self.password
+                )
+
                 await self.send_message(msg.method,
                                         to_details=original_msg.to_details,
                                         from_details=original_msg.from_details,
@@ -130,7 +132,13 @@ class Dialog:
     async def incoming_request(self, request):
         handler = self.router.routes.get(request.method.upper())
         if handler:
-            await handler(request, self)
+            for factory in reversed(self.app.middleware):
+                handler = await factory(self, handler)
+            try:
+                await handler(request, self)
+            except Exception as e:
+                dialog_logger.exception(e)
+                raise
         else:
             response = Response.from_request(request,
                                              status_code=404,
@@ -184,7 +192,7 @@ class Dialog:
         self._protocol.send_message(response)
 
     def close(self):
-        self._app.stop_dialog(self)
+        self.app.stop_dialog(self)
 
     async def register(self, headers=None, attempts=3, expires=360):
         if self.register_current_attempt:
@@ -221,6 +229,30 @@ class Dialog:
         return await self.send_message(method='INVITE',
                                        headers=headers,
                                        payload=sdp)
+
+    def ask_auth(self, request, nonce=None, realm='sip', algorithm='MD5',
+                 method='Digest'):
+
+        if algorithm != 'MD5':
+            raise ValueError('Algorithm not supported')
+
+        if not self.auth:
+            self.auth = Auth()
+
+        response = Response.from_request(request)
+        response.status_code = 401
+        response.status_message = 'Unauthorized'
+        response.headers['WWW-Authenticate'] = self.auth.request_auth(nonce,
+                                                                      realm,
+                                                                      algorithm,
+                                                                      method)
+        self.send_response(response)
+
+    def validate_auth(self, request_auth, username, password, uri):
+        self.auth['username'] = username
+        self.auth['password'] = password
+        self.auth['uri'] = uri
+        return self.auth == request_auth
 
     def ok(self, request):
         response = Response.from_request(request)
