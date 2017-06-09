@@ -2,7 +2,6 @@ import secrets
 
 from hashlib import md5
 
-from .log import application_logger
 
 def md5digest(*args):
     return md5(':'.join(args).encode()).hexdigest()
@@ -13,7 +12,7 @@ class Auth(dict):
         super().__init__()
 
     def __str__(self):
-        if self['method'] == 'Digest':
+        if self['type'] == 'Digest':
             r = 'Digest '
             l = []
             # import ipdb; ipdb.set_trace()
@@ -26,11 +25,11 @@ class Auth(dict):
                     l.append('%s="%s"' % (k, v))
             r += ','.join(l)
         else:
-            raise ValueError('Authentication method not supported')
+            raise ValueError('Authentication type not supported')
         return r
 
     def request_auth(self, nonce=None, realm='sip', algorithm='MD5',
-                     method='Digest'):
+                     type_='Digest'):
 
         if algorithm != 'MD5':
             raise ValueError('Algorithm not supported')
@@ -38,7 +37,7 @@ class Auth(dict):
         if not nonce:
             nonce = str(secrets.randbits(128))
 
-        self['method'] = method
+        self['type'] = type_
         self['nonce'] = nonce
         self['realm'] = realm
         self['algorithm'] = algorithm
@@ -56,16 +55,28 @@ class Auth(dict):
             raise ValueError('Algorithm not supported')
 
     def _calculate_response(self):
+
+        print(self['username'])
+        print(self['realm'])
+        print(self['password'])
+        print(self['method'])
+        print(self['uri'])
+
         ha1 = md5digest(self['username'], self['realm'], self['password'])
         ha2 = md5digest(self['method'], self['uri'])
+
+        print(ha1)
+        print(ha2)
+
         self['response'] = md5digest(ha1, self['nonce'], ha2)
 
     @classmethod
-    def from_header(cls, header):
+    def from_header(cls, header, method):
         auth = cls()
 
         if header.startswith('Digest'):
-            auth['method'] = 'Digest'
+            auth['method'] = method
+            auth['type'] = 'Digest'
             params = header[7:].split(',')
             for param in params:
                 k, v = param.split('=')

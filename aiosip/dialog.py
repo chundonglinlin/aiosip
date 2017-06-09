@@ -85,7 +85,8 @@ class Dialog:
 
                 del (original_msg.headers['CSeq'])
 
-                auth = Auth.from_header(msg.headers['WWW-Authenticate'])
+                auth = Auth.from_header(header=msg.headers['WWW-Authenticate'],
+                                        method=msg.method)
                 original_msg.headers['Authorization'] = auth.do_auth(
                     uri=original_msg.to_details.from_repr(),
                     username=username,
@@ -176,6 +177,7 @@ class Dialog:
                           headers=headers,
                           content_type=content_type,
                           payload=payload)
+
         if future:
             request.future = future
 
