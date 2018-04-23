@@ -428,3 +428,37 @@ class InviteDialog(DialogBase):
 
     def _close(self):
         pass
+
+
+class ProxyDialog(DialogBase):
+    def __init__(self, *args, proxy_peer, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.proxy_peer = proxy_peer
+        self._incoming = asyncio.Queue()
+
+    async def receive_message(self, msg):
+        await self._incoming.put(msg)
+
+    async def recv(self):
+        return await self._incoming.get()
+
+    async def proxy(self, message):
+        # TODO: should be cleaner
+        if not isinstance(message.headers['Via'], list):
+            message.headers['Via'] = [message.headers['Via'], ]
+
+        if f'{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].insert(0, f'SIP/2.0/TCP {self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]}')
+            self.proxy_peer.send_message(message)
+        elif f'{self.peer.local_addr[0]}:{self.peer.local_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].pop(0)
+            self.proxy_peer.send_message(message)
+        elif f'{self.proxy_peer.peer_addr[0]}:{self.proxy_peer.peer_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].insert(0, f'SIP/2.0/TCP {self.peer.local_addr[0]}:{self.peer.local_addr[1]}')
+            self.peer.send_message(message)
+        elif f'{self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].pop(0)
+            self.peer.send_message(message)
+        else:
+            message.headers['Via'].insert(0, f'SIP/2.0/TCP {self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]}')
+            self.proxy_peer.send_message(message)

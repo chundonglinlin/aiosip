@@ -1,10 +1,11 @@
+import uuid
 import asyncio
 import logging
-import uuid
-
+import ipaddress
 import websockets
 
 from . import utils
+from .dialog import Dialog, ProxyDialog
 from .protocol import UDP, TCP, WS
 from .contact import Contact
 
@@ -30,7 +31,7 @@ class Peer:
         self._protocol.send_message(msg, addr=self.peer_addr)
 
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
-                       headers=None, payload=None, cseq=0, inbound=False):
+                       headers=None, payload=None, cseq=0, inbound=False, dialog_factory=Dialog, **kwargs):
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -55,7 +56,7 @@ class Peer:
                 }
             )
 
-        dialog = self._app.dialog_factory(
+        dialog = dialog_factory(
             method=method,
             app=self._app,
             from_details=from_details,
@@ -68,6 +69,7 @@ class Peer:
             payload=payload,
             cseq=cseq,
             inbound=inbound,
+            **kwargs
         )
         LOG.debug('Creating: %s', dialog)
         self._app._dialogs[dialog.dialog_id] = dialog
@@ -260,6 +262,12 @@ class BaseConnector:
         return await self._create_server(local_addr, sock)
 
     async def create_peer(self, peer_addr, local_addr=None):
+        try:
+            peer_addr = ipaddress.ip_address(peer_addr[0]).exploded, peer_addr[1]
+        except ValueError:
+            dns = await self._app.dns.query(peer_addr[0], 'A')
+            peer_addr = dns[0].host, peer_addr[1]
+
         try:
             if not local_addr:
                 peer = [peer for key, peer in self._peers.items() if key[0] == peer_addr][0]

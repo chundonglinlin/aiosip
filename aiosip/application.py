@@ -13,8 +13,8 @@ __all__ = ['Application']
 from collections import MutableMapping
 
 from . import __version__
-from .dialog import Dialog
 from .dialplan import BaseDialplan
+from .dialog import Dialog, ProxyDialog
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
 from .message import Response
@@ -35,7 +35,6 @@ class Application(MutableMapping):
 
     def __init__(self, *,
                  loop=None,
-                 dialog_factory=Dialog,
                  middleware=(),
                  defaults=None,
                  debug=False,
@@ -63,7 +62,6 @@ class Application(MutableMapping):
         self._tasks = list()
 
         self.dialplan = dialplan
-        self.dialog_factory = dialog_factory
         self.loop = loop
 
     @property
@@ -107,14 +105,16 @@ class Application(MutableMapping):
                 self.app = app
                 self.dialog = None
 
-            def _create_dialog(self):
+            def _create_dialog(self, dialog_factory=Dialog, **kwargs):
                 if not self.dialog:
                     self.dialog = peer._create_dialog(
                         method=msg.method,
                         from_details=Contact.from_header(msg.headers['To']),
                         to_details=Contact.from_header(msg.headers['From']),
                         call_id=call_id,
-                        inbound=True
+                        inbound=True,
+                        dialog_factory=dialog_factory,
+                        **kwargs
                     )
                 return self.dialog
 
@@ -126,6 +126,17 @@ class Application(MutableMapping):
                     await dialog.close()
                     return None
 
+                return dialog
+
+            async def proxy(self, message, proxy_peer=None):
+                if not proxy_peer:
+                    proxy_peer = await self.app.connect(
+                        remote_addr=(message.to_details.host, message.to_details.port),
+                        protocol=peer.protocol
+                    )
+
+                dialog = self._create_dialog(dialog_factory=ProxyDialog, proxy_peer=proxy_peer)
+                await dialog.proxy(message)
                 return dialog
 
         request = Request()
