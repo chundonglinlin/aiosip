@@ -9,7 +9,7 @@ from multidict import CIMultiDict
 from . import utils
 from .contact import Contact
 from .protocol import UDP, TCP, WS
-from .dialog import Dialog, InviteDialog
+from .dialog import Dialog, InviteDialog, ProxyStatelessDialog
 
 LOG = logging.getLogger(__name__)
 
@@ -35,7 +35,8 @@ class Peer:
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
                        headers=None, payload=None, cseq=0, inbound=False, dialog_factory=Dialog, **kwargs):
 
-        from_details.add_tag()
+        if not issubclass(dialog_factory, ProxyStatelessDialog):
+            from_details.add_tag()
 
         if not call_id:
             call_id = str(uuid.uuid4())

@@ -447,3 +447,100 @@ class InviteDialog(DialogBase):
                     self._close()
 
         self._close()
+
+
+class ProxyStatelessDialog(DialogBase):
+    def __init__(self, *args, proxy_peer, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.proxy_peer = proxy_peer
+        self._incoming = asyncio.Queue()
+
+    @property
+    def dialog_id(self):
+        return frozenset((self.to_details['params']['tag'],
+                          self.from_details['params'].get('tag'),
+                          self.call_id))
+
+    async def receive_message(self, msg):
+        if 'tag' not in self.from_details['params'] and 'tag' in msg.to_details['params']:
+            del self.app._dialogs[self.dialog_id]
+            self.from_details['params']['tag'] = msg.to_details['params']['tag']
+            self.app._dialogs[self.dialog_id] = self
+
+        await self._incoming.put(msg)
+
+    async def recv(self):
+        return await self._incoming.get()
+
+    def proxy(self, message, peer=None):
+        # TODO: should be cleaner
+
+        if 'Max-Forwards' in message.headers:
+            message.headers['Max-Forwards'] = int(message.headers['Max-Forwards']) - 1
+
+        if not isinstance(message.headers['Via'], list):
+            message.headers['Via'] = [message.headers['Via'], ]
+
+        if peer:
+            message.headers['Via'].insert(0, peer.generate_via_headers())
+            message.headers['Via'][1] = f'{message.headers["Via"][1].split(";branch")[0]};rport={self.peer.peer_addr[1]};received={self.peer.peer_addr[0]};branch={message.headers["Via"][1].split(";branch=")[1]}'
+            message.headers['Path'] = f'<sip:{peer.local_addr[0]}:{peer.local_addr[1]};transport=tcp;lr;received=sip:{peer.peer_addr[0]}:{peer.peer_addr[1]}>'
+            message.headers['P-hint'] = 'outbound'
+            message.headers['Supported'] = 'path'
+            peer.send_message(message)
+        elif 'Route' in message.headers:
+            message.headers['Via'].insert(0, self.proxy_peer.generate_via_headers())
+            message.headers['Via'][1] = f'{message.headers["Via"][1].split(";branch")[0]};rport={self.peer.peer_addr[1]};received={self.peer.peer_addr[0]};branch={message.headers["Via"][1].split(";branch=")[1]}'
+            self.proxy_peer.send_message(message)
+        elif f'{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].insert(0, self.proxy_peer.generate_via_headers())
+            message.headers['Via'][1] = f'{message.headers["Via"][1].split(";branch")[0]};rport={self.peer.peer_addr[1]};received={self.peer.peer_addr[0]};branch={message.headers["Via"][1].split(";branch=")[1]}'
+            message.headers['Path'] = f'<sip:{self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]};transport=tcp;lr;received=sip:{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}>'
+            message.headers['P-hint'] = 'outbound'
+            message.headers['Supported'] = 'path'
+            self.proxy_peer.send_message(message)
+        elif f'{self.peer.local_addr[0]}:{self.peer.local_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].pop(0)
+            message.headers['Path'] = f'<sip:{self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]};transport=tcp;lr;received=sip:{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}>'
+            message.headers['P-hint'] = 'outbound'
+            message.headers['Supported'] = 'path'
+            self.proxy_peer.send_message(message)
+        elif f'{self.proxy_peer.peer_addr[0]}:{self.proxy_peer.peer_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].insert(0, self.peer.generate_via_headers())
+            message.headers['Via'][1] = f'{message.headers["Via"][1].split(";branch")[0]};rport={self.peer.peer_addr[1]};received={self.peer.peer_addr[0]};branch={message.headers["Via"][1].split(";branch=")[1]}'
+            message.headers['Path'] = f'<sip:{self.peer.local_addr[0]}:{self.peer.local_addr[1]};transport=tcp;lr;received=sip:{self.proxy_peer.peer_addr[0]}:{self.proxy_peer.peer_addr[1]}>'
+            message.headers['P-hint'] = 'outbound'
+            message.headers['Supported'] = 'path'
+            self.peer.send_message(message)
+        elif f'{self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].pop(0)
+            message.headers['Path'] = f'<sip:{self.peer.local_addr[0]}:{self.peer.local_addr[1]};transport=tcp;lr;received=sip:{self.proxy_peer.peer_addr[0]}:{self.proxy_peer.peer_addr[1]}>'
+            message.headers['P-hint'] = 'outbound'
+            message.headers['Supported'] = 'path'
+            self.peer.send_message(message)
+        # elif f'{self.proxy_peer.peer_addr[0]}:{self.proxy_peer.peer_addr[1]}' in message._first_line:
+        #     message.headers['Via'].insert(0, self.proxy_peer.generate_via_headers())
+        #     message.headers['Via'][1] = f'{message.headers["Via"][1].split(";branch")[0]};rport={self.peer.peer_addr[1]};received={self.peer.peer_addr[0]};branch={message.headers["Via"][1].split(";branch=")[1]}'
+        #     message.headers['Path'] = f'<sip:{self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]};transport=tcp;lr;received=sip:{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}>'
+        #     message.headers['P-hint'] = 'outbound'
+        #     message.headers['Supported'] = 'path'
+        #     self.proxy_peer.send_message(message)
+        # elif f'{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}' in message._first_line:
+        #     message.headers['Via'].insert(0, self.peer.generate_via_headers())
+        #     message.headers['Via'][1] = f'{message.headers["Via"][1].split(";branch")[0]};rport={self.peer.peer_addr[1]};received={self.peer.peer_addr[0]};branch={message.headers["Via"][1].split(";branch=")[1]}'
+        #     message.headers['Path'] = f'<sip:{self.peer.local_addr[0]}:{self.peer.local_addr[1]};transport=tcp;lr;received=sip:{self.proxy_peer.peer_addr[0]}:{self.proxy_peer.peer_addr[1]}>'
+        #     message.headers['P-hint'] = 'outbound'
+        #     message.headers['Supported'] = 'path'
+        #     self.peer.send_message(message)
+        # else:
+        #     message.headers['Via'].insert(0, self.proxy_peer.generate_via_headers())
+        #     message.headers['Via'][1] = f'{message.headers["Via"][1].split(";branch")[0]};rport={self.peer.peer_addr[1]};received={self.peer.peer_addr[0]};branch={message.headers["Via"][1].split(";branch=")[1]}'
+        #     message.headers['Path'] = f'<sip:{self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]};transport=tcp;lr;received=sip:{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}>'
+        #     message.headers['P-hint'] = 'outbound'
+        #     message.headers['Supported'] = 'path'
+        #     self.proxy_peer.send_message(message)
+        else:
+            raise RuntimeError(f'No routing for message {message}')
+
+    async def close(self, *args, **kwargs):
+        self._close()

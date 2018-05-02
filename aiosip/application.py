@@ -13,14 +13,14 @@ __all__ = ['Application']
 from collections import MutableMapping
 
 from . import __version__
-from .dialog import Dialog
+from .dialog import Dialog, ProxyStatelessDialog
 from .dialplan import BaseDialplan
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
 from .message import Response
 from .contact import Contact
 from .via import Via
-
+from .uri import Uri
 
 LOG = logging.getLogger(__name__)
 
@@ -126,6 +126,40 @@ class Application(MutableMapping):
                     await dialog.close()
                     return None
 
+                return dialog
+
+            async def proxy(self, message, proxy_peer=None, dialog_factory=ProxyStatelessDialog):
+                if not proxy_peer:
+                    remote_addr = None
+                    transport = None
+
+                    if 'Route' in message.headers:
+                        if isinstance(message.headers['Route'], list):
+                            route = Uri(message.headers['Route'][0][1:-1])
+                        else:
+                            route = Uri(message.headers['Route'][1:-1])
+                        remote_addr = route['params'].get('received').split(':')[1], int(route['params'].get('received').split(':')[2])
+                        transport = route['params'].get('transport')
+
+                    if not remote_addr:
+                        remote_addr = (message.to_details.host, message.to_details.port)
+
+                    protocol = peer.protocol
+                    # if transport is None:
+                    #     protocol = peer.protocol
+                    # elif transport.lower() == 'tcp':
+                    #     protocol = TCP
+                    # elif transport.lower() == 'UDP':
+                    #     protocol = UDP
+                    # elif transport.lower() in ('ws', 'wss'):
+                    #     protocol = WS
+                    # else:
+                    #     protocol = UDP
+
+                    proxy_peer = await self.app.connect(remote_addr=remote_addr, protocol=protocol)
+
+                dialog = self._create_dialog(dialog_factory=dialog_factory, proxy_peer=proxy_peer)
+                dialog.proxy(message, peer=proxy_peer)
                 return dialog
 
         request = Request()
