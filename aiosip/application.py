@@ -127,6 +127,21 @@ class Application(MutableMapping):
 
                 return dialog
 
+            async def unauthorized(self, msg):
+                dialog = self._create_dialog()
+                await dialog.unauthorized(msg)
+                return dialog
+
+            def validate_auth(self, msg, password):
+                dialog = self._create_dialog()
+                if msg.auth and msg.auth.validate(password, dialog._nonce):
+                    dialog._nonce = None
+                    return True
+                elif msg.method == 'CANCEL':
+                    return True
+                else:
+                    return False
+
         request = Request()
         await route(request, msg)
 
