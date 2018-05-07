@@ -64,7 +64,7 @@ class DialogBase:
     def _receive_response(self, msg):
 
         if 'tag' not in self.to_details['params']:
-            del self.app._dialogs[self.dialog_id]
+            # del self.app._dialogs[self.dialog_id]
             self.to_details['params']['tag'] = msg.to_details['params']['tag']
             self.app._dialogs[self.dialog_id] = self
 
